@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"text/template"
 
+	"github.com/jgraeger/bverfgbot/internal/bverfg"
 	"github.com/mmcdole/gofeed"
 )
 
@@ -20,13 +21,23 @@ Außerdem sage ich dir Bescheid, wenn neue Features zu Verfügen stehen.
 Für Feedback gerne an @rd_io wenden 💻.
 `
 
-const muellerMsg = `🧑‍⚖️ Es Müllert wieder!
+const firstSenateTodayTpl = `Geheimdienste zittern, Pressekammern schlottern!
+
+Der <b>1. Senat</b>🐻✝️🥦🐺 
+gibt heute eine Entscheidung in nachstehender Sache bekannt:
+<pre>
+{{ .Description }}
+</pre>
+Aktenzeichen: {{ .RefString }}
+`
+
+const secondSenateTodayTpl = `🧑‍⚖️ Es Müllert wieder!
 Heute gibt der <b>2. Senat</b> eine Entscheidung in nachstehender Sache bekannt:
 <pre>
-Die mit einem Antrag auf Erlass einer einstweiligen Anordnung verbundene Verfassungsbeschwerde richtet sich gegen das Urteil des Verfassungsgerichtshofs des Landes Berlin vom 16. November 2022 - VerfGH 154/21 u. a. -, mit dem die Wahlen zum 19. Abgeordnetenhaus von Berlin sowie zu den Bezirksverordnetenversammlungen vom 26. September 2021 im gesamten Wahlgebiet für ungültig erklärt wurden.
+{{ .Description }}
 </pre>
 
-<i>	2 BvR 2189/22</i>
+Aktenzeichen: {{ .RefString }}
 `
 
 const decisionTemplateString = `🦅 <b>Im Namen des Volkes</b> 🦅
@@ -39,13 +50,17 @@ Es wurde nachstehende Entscheidung verkündet:
 `
 
 var (
-	welcomeTemplate  *template.Template
-	decisionTemplate *template.Template
+	welcomeTemplate      *template.Template
+	decisionTemplate     *template.Template
+	firstSenateTemplate  *template.Template
+	secondSenateTemplate *template.Template
 )
 
 func init() {
 	welcomeTemplate, _ = template.New("welcome").Parse(welcomeTemplateString)
 	decisionTemplate, _ = template.New("decision").Parse(decisionTemplateString)
+	firstSenateTemplate, _ = template.New("first_senate_daily").Parse(firstSenateTodayTpl)
+	secondSenateTemplate, _ = template.New("second_senate_daily").Parse(secondSenateTodayTpl)
 }
 
 func getWelcomeMessage(cfg MessageConfig) (string, error) {
@@ -63,6 +78,30 @@ type decisonCfg struct {
 	Link        string
 }
 
+type upcomingCfg struct {
+	Description string
+	RefString   string
+}
+
+func getUpcomingTemplateFor(senate uint8) *template.Template {
+	if senate == 1 {
+		return firstSenateTemplate
+	}
+	return secondSenateTemplate
+}
+
+func buildUpcomingDecisionMessage(d bverfg.AnnouncedDecision) (string, error) {
+	tpl := getUpcomingTemplateFor(d.Ref.Senate)
+
+	var buf bytes.Buffer
+	cfg := upcomingCfg{Description: d.Description, RefString: d.Ref.String()}
+	if err := tpl.Execute(&buf, cfg); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
+}
+
 func buildDecisionMessage(item *gofeed.Item) (string, error) {
 	cfg := decisonCfg{
 		Title:       item.Title,
@@ -76,5 +115,4 @@ func buildDecisionMessage(item *gofeed.Item) (string, error) {
 	}
 
 	return buf.String(), nil
-
 }

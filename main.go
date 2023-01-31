@@ -55,8 +55,10 @@ func serve(ctx context.Context, cfg serveCfg) error {
 	for {
 		select {
 		case feed := <-feedCh:
+			log.Println("new feed item received...")
 			item := feed.Items[0]
 			if item != nil {
+				log.Println("notify bot users about:", item)
 				if err := bot.NotifyDecision(item); err != nil {
 					log.Println("Error sending decision notification:", err)
 				}

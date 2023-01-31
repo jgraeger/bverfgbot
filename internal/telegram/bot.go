@@ -8,11 +8,14 @@ import (
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"github.com/jackc/pgx/v5"
+	"github.com/jgraeger/bverfgbot/internal/bverfg"
 	"github.com/mmcdole/gofeed"
 )
 
 const (
 	botTimeout = 30
+	// The time notify the fellow users for today's senate decisions
+	dailyOutlookHour = 7
 )
 
 type Bot struct {
@@ -46,18 +49,31 @@ func NewBot(ctx context.Context, token string, postgresDSN string) (*Bot, error)
 	return bot, nil
 }
 
+func untilHourOfDay(hour int) time.Duration {
+	if hour < 0 || hour > 23 {
+		log.Fatalf("timeUntilDayHour(%v) is invalid", hour)
+	}
+
+	t := time.Now()
+	n := time.Date(t.Year(), t.Month(), t.Day(), hour, 0, 0, 0, t.Location())
+	d := n.Sub(t)
+	if d < 0 {
+		d = n.Add(24 * time.Hour).Sub(t)
+	}
+
+	return d
+}
+
 func (b *Bot) mainLoop() {
 	updateConfig := tgbotapi.NewUpdate(0)
 	updateConfig.Timeout = botTimeout
 
 	updateChan := b.api.GetUpdatesChan(updateConfig)
 
-	eightAm, err := time.Parse(time.RFC1123Z, "Tue, 31 Jan 2023 07:00:00 +0000")
-	if err != nil {
-		panic(err)
-	}
-	fmt.Println(time.Until(eightAm))
-	timer := time.NewTimer(time.Until(eightAm))
+	// Daily upcoming decisions
+	d := untilHourOfDay(dailyOutlookHour)
+	timer := time.NewTimer(d)
+	log.Println("started timer running for:", d)
 
 	for {
 		select {
@@ -68,12 +84,35 @@ func (b *Bot) mainLoop() {
 				b.handleChatMember(*u.ChatMember)
 			}
 		case <-timer.C:
-			b.SendToAll(muellerMsg)
-			timer.Stop()
+			b.handleDailyOutlook()
+			d = untilHourOfDay(dailyOutlookHour)
+			timer.Reset(d)
+			log.Println("timer reseted for:", d)
 		case <-b.ctx.Done():
 			log.Printf("shutdown telegram loop")
 			b.shutdown()
 			return
+		}
+	}
+}
+
+func (b *Bot) handleDailyOutlook() {
+	log.Println("start daily outlook handler")
+	defer func() { log.Println("finished daily outlook handler") }()
+	todayDate := time.Now().Truncate(24 * time.Hour)
+
+	for _, upcoming := range bverfg.GetUpcomingSenateDecisions() {
+		pubDate := upcoming.PublishDate.Truncate(24 * time.Hour)
+		if pubDate.Sub(todayDate) < 24*time.Hour {
+			log.Printf("decision %s will come in the next 24hours. notify.", upcoming.Ref)
+
+			msg, err := buildUpcomingDecisionMessage(upcoming)
+			if err != nil {
+				log.Printf("error building upcoming decision message: %v", err)
+				continue
+			}
+
+			b.SendToAll(msg)
 		}
 	}
 }
