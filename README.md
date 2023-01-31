@@ -1,1 +1,3 @@
 # BVerfG Bot
+
+Small Telegram bot boilerplate that eventuall could evolve to a general-purpose Government Site Builder scraper. We'll see...
