@@ -13,6 +13,8 @@ import (
 const (
 	fetchTimeout           = 10 * time.Second
 	defaultRefreshInterval = 5 * time.Second
+
+	rssTimestampFormat = "Mon, 2 Jan 2006 15:04:05 -0700"
 )
 
 type Feed struct {
@@ -118,9 +120,9 @@ func (f *Feed) fetchFeed() {
 		return
 	}
 
-	fetchedDate, err := time.Parse(time.RFC1123Z, feed.Published)
+	fetchedDate, err := time.Parse(rssTimestampFormat, feed.Published)
 	if err != nil {
-		log.Println("failed to parse date as RFC1123Z:", feed.Published)
+		log.Println("unexpected format of timestamp:", feed.Published)
 		return
 	}
 

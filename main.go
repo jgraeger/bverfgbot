@@ -43,11 +43,11 @@ func serve(ctx context.Context, cfg serveCfg) error {
 	}
 	bot.DoNothing()
 
-	testFeed := feed.NewFeed(ctx, decisionFeedURL)
-	testFeed.SetRefreshInterval(5 * time.Second)
-	testFeed.SetTranslator(bverfg.NewFeedTranslator())
+	decisionFeed := feed.NewFeed(ctx, decisionFeedURL)
+	decisionFeed.SetRefreshInterval(5 * time.Second)
+	decisionFeed.SetTranslator(bverfg.NewFeedTranslator())
 
-	feedCh := testFeed.Subscribe()
+	feedCh := decisionFeed.Subscribe()
 
 	fmt.Println("Starting...")
 	<-feedCh
