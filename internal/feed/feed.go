@@ -1,8 +1,12 @@
 package feed
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha1"
+	"io"
 	"log"
+	"net/http"
 	"sync"
 	"time"
 
@@ -23,8 +27,9 @@ type Feed struct {
 	ctx    context.Context
 
 	url             string
+	http            http.Client
 	refreshInterval atomic.Duration
-	lastTimestamp   atomic.Time
+	lastChecksum    []byte // SHA1 hash of the last feed processed to detect changes
 	parser          *gofeed.Parser
 	subscriptions   []chan gofeed.Feed
 }
@@ -34,8 +39,8 @@ func NewFeed(ctx context.Context, url string) *Feed {
 		ctx:             ctx,
 		url:             url,
 		refreshInterval: *atomic.NewDuration(defaultRefreshInterval),
+		lastChecksum:    make([]byte, sha1.Size),
 		parser:          gofeed.NewParser(),
-		lastTimestamp:   *atomic.NewTime(time.Time{}),
 	}
 
 	return feed
@@ -114,20 +119,42 @@ func (f *Feed) fetchFeed() {
 	ctx, cancel := context.WithTimeout(context.Background(), fetchTimeout)
 	defer cancel()
 
-	feed, err := f.parser.ParseURLWithContext(f.url, ctx)
+	req, err := http.NewRequest("GET", f.url, nil)
+	if err != nil {
+		log.Printf("error creating request: %v", err)
+		return
+	}
+
+	res, err := f.http.Do(req.WithContext(ctx))
+	if err != nil {
+		log.Printf("error fetching feed: %v", err)
+		return
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		log.Printf("unexpected status code while fetching feed %d", res.StatusCode)
+		return
+	}
+
+	content, err := io.ReadAll(res.Body)
+	if err != nil {
+		log.Printf("error reading feed body: %v", err)
+		return
+	}
+
+	hash := sha1.Sum(content)
+	if bytes.Equal(f.lastChecksum, hash[:]) {
+		// Feed are the same as last time
+		return
+	}
+	f.lastChecksum = hash[:]
+
+	feed, err := f.parser.Parse(bytes.NewReader(content))
 	if err != nil {
 		log.Printf("error parsing feed %v: %v\n", f.url, err)
 		return
 	}
 
-	fetchedDate, err := time.Parse(rssTimestampFormat, feed.Published)
-	if err != nil {
-		log.Println("unexpected format of timestamp:", feed.Published)
-		return
-	}
-
-	if fetchedDate.After(f.lastTimestamp.Load()) {
-		f.lastTimestamp.Store(fetchedDate)
-		go f.publish(*feed)
-	}
+	go f.publish(*feed)
 }
